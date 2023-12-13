@@ -29,26 +29,14 @@
 PG_MODULE_MAGIC;
 
 /* GUC variables */
-static int	  pg_stat_advisor_log_min_duration = -1; /* msec or -1 */
-static bool   pg_stat_advisor_log_analyze = false;
-static bool   pg_stat_advisor_log_buffers = false;
-static bool   pg_stat_advisor_log_wal = false;
-static bool   pg_stat_advisor_log_timing = true;
-static bool   pg_stat_advisor_log_nested_statements = false;
-static double pg_stat_advisor_sample_rate = 1;
 static double pg_stat_advisor_add_statistics_threshold = 0.0;
 
 
 /* Current nesting depth of ExecutorRun calls */
 static int	nesting_level = 0;
 
-/* Is the current top-level query to be sampled? */
-static bool current_query_sampled = false;
 
-#define pg_stat_advisor_enabled() \
-	(pg_stat_advisor_log_min_duration >= 0 && \
-	 (nesting_level == 0 || pg_stat_advisor_log_nested_statements) && \
-	 current_query_sampled)
+#define pg_stat_advisor_enabled() (nesting_level == 0)
 
 /* Saved hook values in case of unload */
 static ExecutorStart_hook_type prev_ExecutorStart = NULL;
@@ -72,86 +60,6 @@ void
 _PG_init(void)
 {
 	/* Define custom GUC variables. */
-	DefineCustomIntVariable("pg_stat_advisor.log_min_duration",
-							"Sets the minimum execution time above which plans will be logged.",
-							"Zero prints all plans. -1 turns this feature off.",
-							&pg_stat_advisor_log_min_duration,
-							-1,
-							-1, INT_MAX,
-							PGC_SUSET,
-							GUC_UNIT_MS,
-							NULL,
-							NULL,
-							NULL);
-
-	DefineCustomBoolVariable("pg_stat_advisor.log_analyze",
-							 "Use EXPLAIN ANALYZE for plan logging.",
-							 NULL,
-							 &pg_stat_advisor_log_analyze,
-							 false,
-							 PGC_SUSET,
-							 0,
-							 NULL,
-							 NULL,
-							 NULL);
-
-	DefineCustomBoolVariable("pg_stat_advisor.log_buffers",
-							 "Log buffers usage.",
-							 NULL,
-							 &pg_stat_advisor_log_buffers,
-							 false,
-							 PGC_SUSET,
-							 0,
-							 NULL,
-							 NULL,
-							 NULL);
-
-	DefineCustomBoolVariable("pg_stat_advisor.log_wal",
-							 "Log WAL usage.",
-							 NULL,
-							 &pg_stat_advisor_log_wal,
-							 false,
-							 PGC_SUSET,
-							 0,
-							 NULL,
-							 NULL,
-							 NULL);
-
-	DefineCustomBoolVariable("pg_stat_advisor.log_nested_statements",
-							 "Log nested statements.",
-							 NULL,
-							 &pg_stat_advisor_log_nested_statements,
-							 false,
-							 PGC_SUSET,
-							 0,
-							 NULL,
-							 NULL,
-							 NULL);
-
-	DefineCustomBoolVariable("pg_stat_advisor.log_timing",
-							 "Collect timing data, not just row counts.",
-							 NULL,
-							 &pg_stat_advisor_log_timing,
-							 true,
-							 PGC_SUSET,
-							 0,
-							 NULL,
-							 NULL,
-							 NULL);
-
-	DefineCustomRealVariable("pg_stat_advisor.sample_rate",
-							 "Fraction of queries to process.",
-							 NULL,
-							 &pg_stat_advisor_sample_rate,
-							 1.0,
-							 0.0,
-							 1.0,
-							 PGC_SUSET,
-							 0,
-							 NULL,
-							 NULL,
-							 NULL);
-
 	DefineCustomRealVariable("pg_stat_advisor.add_statistics_threshold",
 							 "Sets the threshold for actual/estimated #rows ratio triggering creation of multicolumn statistic for the related columns.",
 							 "Zero disables implicit creation of multicolumn statistic.",
@@ -184,40 +92,6 @@ _PG_init(void)
 static void
 explain_ExecutorStart(QueryDesc *queryDesc, int eflags)
 {
-	/*
-	 * At the beginning of each top-level statement, decide whether we'll
-	 * sample this statement.  If nested-statement explaining is enabled,
-	 * either all nested statements will be explained or none will.
-	 *
-	 * When in a parallel worker, we should do nothing, which we can implement
-	 * cheaply by pretending we decided not to sample the current statement.
-	 * If EXPLAIN is active in the parent session, data will be collected and
-	 * reported back to the parent, and it's no business of ours to interfere.
-	 */
-	if (nesting_level == 0)
-	{
-		if (pg_stat_advisor_log_min_duration >= 0 && !IsParallelWorker())
-			current_query_sampled = (pg_prng_double(&pg_global_prng_state) < pg_stat_advisor_sample_rate);
-		else
-			current_query_sampled = false;
-	}
-
-	if (pg_stat_advisor_enabled())
-	{
-		/* Enable per-node instrumentation iff log_analyze is required. */
-		if (pg_stat_advisor_log_analyze && (eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
-		{
-			if (pg_stat_advisor_log_timing)
-				queryDesc->instrument_options |= INSTRUMENT_TIMER;
-			else
-				queryDesc->instrument_options |= INSTRUMENT_ROWS;
-			if (pg_stat_advisor_log_buffers)
-				queryDesc->instrument_options |= INSTRUMENT_BUFFERS;
-			if (pg_stat_advisor_log_wal)
-				queryDesc->instrument_options |= INSTRUMENT_WAL;
-		}
-	}
-
 	if (prev_ExecutorStart)
 		prev_ExecutorStart(queryDesc, eflags);
 	else
@@ -510,14 +384,8 @@ AddMultiColumnStatisticsForNode(PlanState *planstate, ExplainState *es)
 		AddMultiColumnStatisticsForNode(innerPlanState(planstate), es);
 
 	/* special child plans */
-switch (nodeTag(plan))
+	switch (nodeTag(plan))
 	{
-        // TODO:
-		// case T_ModifyTable:
-		// 	AddMultiColumnStatisticsForMemberNodes(((ModifyTableState *) planstate)->mt_plans,
-		// 										   ((ModifyTableState *) planstate)->mt_nplans,
-		// 										   es);
-		// 	break;
 		case T_Append:
 			AddMultiColumnStatisticsForMemberNodes(((AppendState *) planstate)->appendplans,
 												   ((AppendState *) planstate)->as_nplans,
@@ -555,7 +423,6 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
 	if (queryDesc->totaltime && pg_stat_advisor_enabled())
 	{
 		MemoryContext oldcxt;
-		double		msec;
 
 		/*
 		 * Make sure we operate in the per-query context, so any cruft will be
@@ -569,32 +436,27 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
 		 */
 		InstrEndLoop(queryDesc->totaltime);
 
-		/* Log plan if duration is exceeded. */
-		msec = queryDesc->totaltime->total * 1000.0;
-		if (msec >= pg_stat_advisor_log_min_duration)
-		{
-			ExplainState *es = NewExplainState();
+		ExplainState *es = NewExplainState();
 
-			es->analyze = queryDesc->instrument_options;
-			es->buffers = es->analyze;
-			es->wal = es->analyze;
-			es->timing = es->analyze;
-			es->summary = es->analyze;
+		es->analyze = queryDesc->instrument_options;
+		es->buffers = es->analyze;
+		es->wal = es->analyze;
+		es->timing = es->analyze;
+		es->summary = es->analyze;
 
-			ExplainBeginOutput(es);
-			ExplainQueryText(es, queryDesc);
-			ExplainQueryParameters(es, queryDesc->params, -1);
-			ExplainPrintPlan(es, queryDesc);
-			if (es->analyze)
-				ExplainPrintTriggers(es, queryDesc);
-			if (es->costs)
-				ExplainPrintJITSummary(es, queryDesc);
-			ExplainEndOutput(es);
+		ExplainBeginOutput(es);
+		ExplainQueryText(es, queryDesc);
+		ExplainQueryParameters(es, queryDesc->params, -1);
+		ExplainPrintPlan(es, queryDesc);
+		if (es->analyze)
+			ExplainPrintTriggers(es, queryDesc);
+		if (es->costs)
+			ExplainPrintJITSummary(es, queryDesc);
+		ExplainEndOutput(es);
 
-			/* Add multicolumn statistic if requested */
-			if (pg_stat_advisor_add_statistics_threshold && !IsParallelWorker())
-				AddMultiColumnStatisticsForNode(queryDesc->planstate, es);
-		}
+		/* Add multicolumn statistic if requested */
+		if (pg_stat_advisor_add_statistics_threshold && !IsParallelWorker())
+			AddMultiColumnStatisticsForNode(queryDesc->planstate, es);
 
 		MemoryContextSwitchTo(oldcxt);
 	}
