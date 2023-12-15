@@ -3,7 +3,7 @@
  * pg_stat_advisor.c
  *
  *
- * Copyright (c) 2008-2023, PostgreSQL Global Development Group
+ * Copyright (c) 2023, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  contrib/pg_stat_advisor/pg_stat_advisor.c
@@ -159,7 +159,7 @@ explain_ExecutorFinish(QueryDesc *queryDesc)
 }
 
 /**
- * Try to add multicolumn statistics for specified subplans.
+ * Suggest statistics for specified subplans.
  */
 static void
 AddMultiColumnStatisticsForSubPlans(List *plans, ExplainState *es)
@@ -175,7 +175,7 @@ AddMultiColumnStatisticsForSubPlans(List *plans, ExplainState *es)
 }
 
 /**
- * Try to add multicolumn statistics for plan subnodes.
+ * Suggest statistics for plan subnodes.
  */
 static void
 AddMultiColumnStatisticsForMemberNodes(PlanState **planstates, int nsubnodes,
@@ -199,7 +199,7 @@ vars_list_comparator(const ListCell *a, const ListCell *b)
 }
 
 /**
- * Try to add multicolumn statistics for qual
+ * Suggest statistics for qual
  */
 static void
 AddMultiColumnStatisticsForQual(List* qual, ExplainState *es)
@@ -221,7 +221,7 @@ AddMultiColumnStatisticsForQual(List* qual, ExplainState *es)
 	{
 		ListCell *cell;
 		List *cols = NULL;
-	Index relno = 0;
+		Index relno = 0;
 		Bitmapset* colmap = NULL;
 
 		/* Contruct list of unique vars */
@@ -260,7 +260,7 @@ AddMultiColumnStatisticsForQual(List* qual, ExplainState *es)
 			}
 			vars = foreach_delete_current(vars, cell);
 		}
-		/* To create multicolumn statitics we need to have at least 2 columns */
+		/* To suggest statitics we need to have at least 2 columns */
 		if (list_length(cols) >= 2)
 		{
 			RangeTblEntry *rte = rt_fetch(relno, es->rtable);
@@ -328,7 +328,7 @@ AddMultiColumnStatisticsForQual(List* qual, ExplainState *es)
 }
 
 /**
- * Try to add multicolumn statistics for node
+ * Suggest statistics for node
  */
 static void
 AddMultiColumnStatisticsForNode(PlanState *planstate, ExplainState *es)
@@ -423,6 +423,7 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
 	if (queryDesc->totaltime && pg_stat_advisor_enabled())
 	{
 		MemoryContext oldcxt;
+		ExplainState *es;
 
 		/*
 		 * Make sure we operate in the per-query context, so any cruft will be
@@ -436,13 +437,9 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
 		 */
 		InstrEndLoop(queryDesc->totaltime);
 
-		ExplainState *es = NewExplainState();
+		es = NewExplainState();
 
 		es->analyze = queryDesc->instrument_options;
-		es->buffers = es->analyze;
-		es->wal = es->analyze;
-		es->timing = es->analyze;
-		es->summary = es->analyze;
 
 		ExplainBeginOutput(es);
 		ExplainQueryText(es, queryDesc);
@@ -454,7 +451,6 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
 			ExplainPrintJITSummary(es, queryDesc);
 		ExplainEndOutput(es);
 
-		/* Add multicolumn statistic if requested */
 		if (pg_stat_advisor_add_statistics_threshold && !IsParallelWorker())
 			AddMultiColumnStatisticsForNode(queryDesc->planstate, es);
 
