@@ -6,6 +6,8 @@ OBJS = \
 	pg_stat_advisor.o
 PGFILEDESC = "pg_stat_advisor - analyze query performance and recommend the creation of additional statistics"
 
+REGRESS = pg_stat_advisor
+
 ifdef USE_PGXS
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
