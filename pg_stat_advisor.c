@@ -142,6 +142,7 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
 			ExplainPrintJITSummary(es, queryDesc);
 		ExplainEndOutput(es);
 
+		/* Entry to check */
 		if (!IsParallelWorker())
 			SuggestMultiColumnStatisticsForNode(queryDesc->planstate, es);
 
@@ -205,22 +206,17 @@ UpdateStatistics(char *rel_name)
     bool result = false;
     char sqlcmd[256];
 
-    /* Connect to SPI manager */
     if ((ret = SPI_connect()) < 0)
     {
-        /* SPI_connect failed */
         elog(ERROR, "SPI_connect failed: error code %d", ret);
     }
 
-	/* Construct SQL command */
     snprintf(sqlcmd, sizeof(sqlcmd), "SELECT n_live_tup, n_mod_since_analyze FROM pg_stat_all_tables WHERE relname = '%s';", rel_name);
 
-    /* Execute SQL command */
     ret = SPI_execute(sqlcmd, true, 0);
     if (ret != SPI_OK_SELECT)
         elog(ERROR, "SPI_execute failed: error code %d", ret);
 
-    /* Get number of tuples in result */
     ntuples = SPI_processed;
 
     if (ntuples > 0)
@@ -233,15 +229,13 @@ UpdateStatistics(char *rel_name)
 		double n_live_tup          = (double)DatumGetInt64(SPI_getbinval(tuple, tupdesc, 1, &is_null));
         double n_mod_since_analyze = (double)DatumGetInt64(SPI_getbinval(tuple, tupdesc, 2, &is_null));
 
-        /* Check if both values are positive */
+		/* NOTE: Criteria of suggestion's message about ANALYZE */
         if (1 - (n_live_tup - n_mod_since_analyze) / n_live_tup > pg_stat_advisor_analyze_scale_factor)
             result = true;
     }
 
-    /* Disconnect from SPI manager */
     SPI_finish();
 
-    /* Return result */
     return result;
 }
 
@@ -431,6 +425,7 @@ SuggestMultiColumnStatisticsForNode(PlanState *planstate, ExplainState *es)
 {
 	Plan	   *plan = planstate->plan;
 
+	/* NOTE: Criteria of suggestion's message about CREATE STATISTICS */
 	if (planstate->instrument && plan->plan_rows != 0 &&
 		plan->plan_rows / planstate->instrument->ntuples < pg_stat_advisor_suggest_statistics_threshold)
 	{

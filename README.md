@@ -1,6 +1,6 @@
 ## pg_stat_advisor - PostgreSQL advisor to create statistics
 
-- [pg_stat_advisor - PostgreSQL advisor to create statistics](#credcheck---postgresql-usernamepassword-checks)
+- [pg_stat_advisor - PostgreSQL advisor to create and update statistics](#credcheck---postgresql-usernamepassword-checks)
 	- [Description](#description)
 	- [Installation](#installation)
 	- [Using](#using)
@@ -10,7 +10,7 @@
 
 ### [Description](#description)
 
-pg_stat_advisor is a PostgreSQL extension designed to analyze query performance and recommend the creation of additional statistics to improve execution speed.
+pg_stat_advisor is a PostgreSQL extension designed to analyze query performance and recommend the creation of extended statistics to improve rows estimates and update statistics.
 
 ### [Installation](#installation)
 
@@ -28,34 +28,53 @@ USE_PGXS=1 make
 sudo USE_PGXS=1 make install
 ```
 
-Append credcheck to shared_preload_libraries configuration parameter in your postgresql.conf file then restart the PostgreSQL database to apply the changes. Or you can use "LOAD 'pg_stat_advisor';"command
+Append pg_stat_advisor to shared_preload_libraries configuration parameter in your postgresql.conf file then restart the PostgreSQL database to apply the changes. Or you can use "LOAD 'pg_stat_advisor';"command
 ```
 LOAD 'pg_stat_advisor';
 ```
 
 ### [Using](#using)
 
-There is also the pg_stat_advisor.add_statistics_threshold GUC that can be used to set a add_statistics_threshold. For example:
+There is also the pg_stat_advisor.suggest_statistics_threshold GUC that can be used to set a suggest_statistics_threshold. For example:
 ```
-SET pg_stat_advisor.add_statistics_threshold = 1.0;
+SET pg_stat_advisor.suggest_statistics_threshold = 1.0;
+```
+There is the pg_stat_advisor.analyze_scale_factor GUC that can be used to set analyze_scale_factor. For example:
+```
+SET pg_stat_advisor.analyze_scale_factor = 0.3;
 ```
 
 ### [Examples](#examples)
 
 
 ```
-postgres=# create table t (i int, j int);
+postgres=# LOAD 'pg_stat_advisor';
+LOAD
+postgres=# SET pg_stat_advisor.analyze_scale_factor = 0.1;
+SET
+postgres=# CREATE TABLE my_tbl(fld_1 INTEGER, fld_2 BIGINT) WITH (autovacuum_enabled = false);
 CREATE TABLE
-postgres=# insert into t select i/10, i/100 from generate_series(1, 1000000) i;
+postgres=# INSERT INTO my_tbl (fld_1, fld_2)
+SELECT
+     i/100 as fld_1,
+     i/500 as fld_2
+FROM generate_series(1, 10000000) s(i);
 INSERT 0 1000000
-postgres=# analyze t;
+postgres=# ANALYZE my_tbl;
 ANALYZE
-postgres=# explain analyze select * from t where i = 100 and j = 10;
+postgres=# INSERT INTO my_tbl (fld_1, fld_2)
+SELECT
+     i/100 as fld_1,
+     i/500 as fld_2
+FROM generate_series(1, 10000000) s(i);
+INSERT 0 1000000
+postgres=# EXPLAIN ANALYZE SELECT * FROM my_tbl WHERE fld_1 = 500 AND fld_2 = 100;
+NOTICE:  pg_stat_advisor suggestion: 'ANALYZE my_tbl'
                                                    QUERY PLAN                                 
                   
 ----------------------------------------------------------------------------------------------
 ------------------
- Gather  (cost=1000.00..11675.10 rows=1 width=8) (actual time=0.526..61.564 rows=10 loops=1)
+ Gather  (cost=1000.00..11675.10 rows=1 width=8) (actual time=0.526..61.564 rows=100 loops=1)
    Workers Planned: 2
    Workers Launched: 2
    ->  Parallel Seq Scan on t  (cost=0.00..10675.00 rows=1 width=8) (actual time=35.369..54.44
@@ -66,18 +85,17 @@ postgres=# explain analyze select * from t where i = 100 and j = 10;
  Execution Time: 61.589 ms
 (8 rows)
 
-
-postgres=# load 'pg_stat_advisor';
-LOAD
-postgres=# set pg_stat_advisor.add_statistics_threshold = 0.1;
+postgres=# ANALYZE my_tbl;
+ANALYZE
+postgres=# set pg_stat_advisor.suggest_statistics_threshold = 0.2;
 SET
-postgres=# explain analyze select * from t where i = 100 and j = 10;
-NOTICE:  pg_stat_advisor suggestion: CREATE STATISTICS t_i_j ON i, j FROM t
+postgres=# EXPLAIN ANALYZE SELECT * FROM my_tbl WHERE fld_1 = 500 AND fld_2 = 100;
+NOTICE:  pg_stat_advisor suggestion: CREATE STATISTICS my_tbl_fld_1_fld_2 ON fld_1, fld_2 FROM my_tbl
                                                    QUERY PLAN                                 
                   
 ----------------------------------------------------------------------------------------------
 ------------------
- Gather  (cost=1000.00..11675.10 rows=1 width=8) (actual time=0.400..59.292 rows=10 loops=1)
+ Gather  (cost=1000.00..11675.10 rows=1 width=8) (actual time=0.400..59.292 rows=100 loops=1)
    Workers Planned: 2
    Workers Launched: 2
    ->  Parallel Seq Scan on t  (cost=0.00..10675.00 rows=1 width=8) (actual time=35.614..54.29
