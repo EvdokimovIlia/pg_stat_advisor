@@ -1,52 +1,247 @@
 LOAD 'pg_stat_advisor';
-SET pg_stat_advisor.analyze_scale_factor = 0.4;
-SET pg_stat_advisor.suggest_statistics_threshold = 0.11;
-CREATE TABLE my_tbl(fld_1 INTEGER, fld_2 BIGINT) WITH (autovacuum_enabled = false);
-INSERT INTO my_tbl (fld_1, fld_2)
-SELECT
-     i/100 as fld_1,
-     i/500 as fld_2
-FROM generate_series(1, 10000000) s(i);
-ANALYZE my_tbl;
-INSERT INTO my_tbl (fld_1, fld_2)
-SELECT
-     i/100 as fld_1,
-     i/500 as fld_2
-FROM generate_series(1, 10000000) s(i);
-EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT * FROM my_tbl WHERE fld_1 = 1 AND fld_2 = 0;
-NOTICE:  pg_stat_advisor suggestion: 'ANALYZE my_tbl'
-                         QUERY PLAN                         
-------------------------------------------------------------
- Gather (actual rows=200 loops=1)
+SET pg_stat_advisor.suggest_statistics_threshold = 1.0;
+--
+-- Prepare 2-column table
+--
+CREATE TABLE t (i INT, j INT) WITH (autovacuum_enabled = false);
+INSERT INTO t SELECT i/10, i/100 FROM  GENERATE_SERIES(1,1000000) i;
+-- Check without ANALYZE
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t WHERE i = 100 AND j = 10;
+                      QUERY PLAN                      
+------------------------------------------------------
+ Gather (actual rows=10 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on my_tbl (actual rows=67 loops=3)
-         Filter: ((fld_1 = 1) AND (fld_2 = 0))
-         Rows Removed by Filter: 6666600
+   ->  Parallel Seq Scan on t (actual rows=3 loops=3)
+         Filter: ((i = 100) AND (j = 10))
+         Rows Removed by Filter: 333330
 (6 rows)
 
-ANALYZE my_tbl;
-EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT * FROM my_tbl WHERE fld_1 = 1 AND fld_2 = 0;
-NOTICE:  pg_stat_advisor suggestion: CREATE STATISTICS my_tbl_fld_1_fld_2 ON fld_1, fld_2 FROM my_tbl
-                         QUERY PLAN                         
-------------------------------------------------------------
- Gather (actual rows=200 loops=1)
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT stxname, stxkeys, stxkind FROM pg_statistic_ext;
+ stxname | stxkeys | stxkind 
+---------+---------+---------
+(0 rows)
+
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't';
+ analyze_count 
+---------------
+             0
+(1 row)
+
+-- Check creating statistics with ANALYZE
+VACUUM ANALYZE t;
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't';
+ analyze_count 
+---------------
+             1
+(1 row)
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t WHERE i = 100 AND j = 10;
+                      QUERY PLAN                      
+------------------------------------------------------
+ Gather (actual rows=10 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on my_tbl (actual rows=67 loops=3)
-         Filter: ((fld_1 = 1) AND (fld_2 = 0))
-         Rows Removed by Filter: 6666600
+   ->  Parallel Seq Scan on t (actual rows=3 loops=3)
+         Filter: ((i = 100) AND (j = 10))
+         Rows Removed by Filter: 333330
 (6 rows)
 
-CREATE STATISTICS my_tbl_fld_1_fld_2 ON fld_1, fld_2 FROM my_tbl;
-EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT * FROM my_tbl WHERE fld_1 = 1 AND fld_2 = 0;
-                         QUERY PLAN                         
-------------------------------------------------------------
- Gather (actual rows=200 loops=1)
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT stxname, stxkeys, stxkind FROM pg_statistic_ext;
+  stxname   | stxkeys | stxkind 
+------------+---------+---------
+ t_i_j_stat | 1 2     | {d,f,m}
+(1 row)
+
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't';
+ analyze_count 
+---------------
+             2
+(1 row)
+
+DROP STATISTICS t_i_j_stat;
+-- Check order of name
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t WHERE j = 10 AND i = 100;
+                      QUERY PLAN                      
+------------------------------------------------------
+ Gather (actual rows=10 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on my_tbl (actual rows=67 loops=3)
-         Filter: ((fld_1 = 1) AND (fld_2 = 0))
-         Rows Removed by Filter: 6666600
+   ->  Parallel Seq Scan on t (actual rows=3 loops=3)
+         Filter: ((j = 10) AND (i = 100))
+         Rows Removed by Filter: 333330
 (6 rows)
+
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT stxname, stxkeys, stxkind FROM pg_statistic_ext;
+  stxname   | stxkeys | stxkind 
+------------+---------+---------
+ t_i_j_stat | 1 2     | {d,f,m}
+(1 row)
+
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't';
+ analyze_count 
+---------------
+             3
+(1 row)
+
+DROP STATISTICS t_i_j_stat;
+-- estimation gretaer than actual
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t WHERE i = 100 OR j = 10;
+                      QUERY PLAN                       
+-------------------------------------------------------
+ Gather (actual rows=100 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   ->  Parallel Seq Scan on t (actual rows=33 loops=3)
+         Filter: ((i = 100) OR (j = 10))
+         Rows Removed by Filter: 333300
+(6 rows)
+
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT stxname, stxkeys, stxkind FROM pg_statistic_ext;
+ stxname | stxkeys | stxkind 
+---------+---------+---------
+(0 rows)
+
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't';
+ analyze_count 
+---------------
+             3
+(1 row)
+
+-- Check temporary tables
+CREATE TEMP TABLE temp (i INT, j INT) WITH (autovacuum_enabled = false);
+INSERT INTO temp SELECT i/10, i/100 FROM  GENERATE_SERIES(1,1000000) i;
+VACUUM ANALYZE temp;
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 'temp';
+ analyze_count 
+---------------
+             1
+(1 row)
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM temp WHERE i = 100 AND j = 10;
+                QUERY PLAN                 
+-------------------------------------------
+ Seq Scan on temp (actual rows=10 loops=1)
+   Filter: ((i = 100) AND (j = 10))
+   Rows Removed by Filter: 999990
+(3 rows)
+
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT stxname, stxkeys, stxkind FROM pg_statistic_ext;
+ stxname | stxkeys | stxkind 
+---------+---------+---------
+(0 rows)
+
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 'temp';
+ analyze_count 
+---------------
+             1
+(1 row)
+
+-- Check part-analyzed table
+CREATE TABLE t2 (i INT, j INT, k INT) WITH (autovacuum_enabled = false);
+INSERT INTO t2 SELECT i/10, i/100, i/10 FROM  GENERATE_SERIES(1,1000000) i;
+VACUUM ANALYZE t2(i, j);
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't2';
+ analyze_count 
+---------------
+             1
+(1 row)
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t2 WHERE i = 100 AND j = 10;
+NOTICE:  pg_stat_advisor suggestion: 'ANALYZE t2'
+                      QUERY PLAN                       
+-------------------------------------------------------
+ Gather (actual rows=10 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   ->  Parallel Seq Scan on t2 (actual rows=3 loops=3)
+         Filter: ((i = 100) AND (j = 10))
+         Rows Removed by Filter: 333330
+(6 rows)
+
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT stxname, stxkeys, stxkind FROM pg_statistic_ext;
+ stxname | stxkeys | stxkind 
+---------+---------+---------
+(0 rows)
+
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't2';
+ analyze_count 
+---------------
+             1
+(1 row)
+
+-- Check column with ndistinct = 1
+TRUNCATE t2;
+INSERT INTO t2 SELECT i/10, i/100, 1 FROM  GENERATE_SERIES(1,1000000) i;
+VACUUM ANALYZE t2;
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't2';
+ analyze_count 
+---------------
+             2
+(1 row)
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t2 WHERE i = 100 AND j = 10 AND k = 1;
+                      QUERY PLAN                       
+-------------------------------------------------------
+ Gather (actual rows=10 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   ->  Parallel Seq Scan on t2 (actual rows=3 loops=3)
+         Filter: ((i = 100) AND (j = 10) AND (k = 1))
+         Rows Removed by Filter: 333330
+(6 rows)
+
+SELECT pg_sleep(1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+SELECT stxname, stxkeys, stxkind FROM pg_statistic_ext;
+   stxname   | stxkeys | stxkind 
+-------------+---------+---------
+ t2_i_j_stat | 1 2     | {d,f,m}
+(1 row)
+
+SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't2';
+ analyze_count 
+---------------
+             3
+(1 row)
 
