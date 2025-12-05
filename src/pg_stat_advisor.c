@@ -329,7 +329,7 @@ SuggestMultiColumnStatisticsForQual(List *qual, ExplainState *es)
 
 	pg_stextdata = table_open(rte->relid, ShareUpdateExclusiveLock);
 	if (pg_stextdata->rd_rel->relpersistence == RELPERSISTENCE_TEMP ||
-		pg_stextdata->rd_rel->relpersistence == RELKIND_PARTITIONED_TABLE)
+		pg_stextdata->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
     {
         table_close(pg_stextdata, ShareUpdateExclusiveLock);
 		bms_free(colmap);
