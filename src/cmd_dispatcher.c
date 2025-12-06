@@ -248,6 +248,7 @@ static void HandleStatAdvisorCommand(Oid table_id, Bitmapset *columns)
     elog(LOG, "Received Stat Advisor command");
 
     StartTransactionCommand();
+    PushActiveSnapshot(GetTransactionSnapshot());
 
     while ((bit = bms_next_member(columns, bit)) >= 0)
     {
@@ -279,12 +280,24 @@ static void HandleStatAdvisorCommand(Oid table_id, Bitmapset *columns)
     stats->stxcomment = NULL;
     stats->transformed = true; /* don't need transformStatsStmt again */
 
-    CreateStatistics(stats);
-
-    CommandCounterIncrement();
-
-    do_analyze(table_id, rel, va_cols);
+    PG_TRY();
+    {
+        CreateStatistics(stats, true);
+        CommandCounterIncrement();
+        do_analyze(table_id, rel, va_cols);
+    }
+    PG_CATCH();
+    {
+        /* Log the error and abort the transaction */
+        elog(WARNING, "Error occurred during extended statistics creation or analysis; skipping operation from %s.%s", rel_namespace, rel_name);
+        PopActiveSnapshot();
+        AbortCurrentTransaction();
+        FlushErrorState();
+        return;
+    }
+    PG_END_TRY();
 
     elog(LOG, "pg_stat_advisor: successfully created extended statistics %s from %s.%s", create_stat_stmt, rel_namespace, rel_name);
+    PopActiveSnapshot();
     CommitTransactionCommand();
 }
