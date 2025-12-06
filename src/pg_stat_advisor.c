@@ -6,6 +6,8 @@
 #include "access/table.h"
 #include "catalog/pg_statistic_ext.h"
 #include "commands/explain.h"
+#include "commands/explain_state.h"
+#include "commands/explain_format.h"
 #include "commands/defrem.h"
 #include "executor/spi.h"
 #include "optimizer/optimizer.h"
@@ -49,9 +51,7 @@ static ExecutorFinish_hook_type prev_ExecutorFinish = NULL;
 static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 
 static void explain_ExecutorStart(QueryDesc *queryDesc, int eflags);
-static void explain_ExecutorRun(QueryDesc *queryDesc,
-								ScanDirection direction,
-								uint64 count, bool execute_once);
+static void explain_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, uint64 count);
 static void explain_ExecutorFinish(QueryDesc *queryDesc);
 static void explain_ExecutorEnd(QueryDesc *queryDesc);
 static void SuggestMultiColumnStatisticsForQual(List *qual, ExplainState *es);
@@ -139,15 +139,15 @@ explain_ExecutorStart(QueryDesc *queryDesc, int eflags)
  */
 static void
 explain_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction,
-					uint64 count, bool execute_once)
+					uint64 count)
 {
 	nesting_level++;
 	PG_TRY();
 	{
 		if (prev_ExecutorRun)
-			prev_ExecutorRun(queryDesc, direction, count, execute_once);
+			prev_ExecutorRun(queryDesc, direction, count);
 		else
-			standard_ExecutorRun(queryDesc, direction, count, execute_once);
+			standard_ExecutorRun(queryDesc, direction, count);
 	}
 	PG_FINALLY();
 	{

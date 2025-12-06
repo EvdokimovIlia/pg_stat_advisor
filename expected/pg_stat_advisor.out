@@ -6,13 +6,13 @@ SET pg_stat_advisor.suggest_statistics_threshold = 1.0;
 CREATE TABLE t (i INT, j INT) WITH (autovacuum_enabled = false);
 INSERT INTO t SELECT i/10, i/100 FROM  GENERATE_SERIES(1,1000000) i;
 -- Check without ANALYZE
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t WHERE i = 100 AND j = 10;
-                      QUERY PLAN                      
-------------------------------------------------------
- Gather (actual rows=10 loops=1)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) SELECT * FROM t WHERE i = 100 AND j = 10;
+                       QUERY PLAN                        
+---------------------------------------------------------
+ Gather (actual rows=10.00 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on t (actual rows=3 loops=3)
+   ->  Parallel Seq Scan on t (actual rows=3.33 loops=3)
          Filter: ((i = 100) AND (j = 10))
          Rows Removed by Filter: 333330
 (6 rows)
@@ -43,15 +43,19 @@ SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't';
 (1 row)
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t WHERE i = 100 AND j = 10;
-                      QUERY PLAN                      
-------------------------------------------------------
- Gather (actual rows=10 loops=1)
+                       QUERY PLAN                        
+---------------------------------------------------------
+ Gather (actual rows=10.00 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on t (actual rows=3 loops=3)
+   Buffers: shared hit=4425
+   ->  Parallel Seq Scan on t (actual rows=3.33 loops=3)
          Filter: ((i = 100) AND (j = 10))
          Rows Removed by Filter: 333330
-(6 rows)
+         Buffers: shared hit=4425
+ Planning:
+   Buffers: shared hit=8
+(10 rows)
 
 SELECT pg_sleep(1);
  pg_sleep 
@@ -73,13 +77,13 @@ SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't';
 
 DROP STATISTICS t_i_j_stat;
 -- Check order of name
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t WHERE j = 10 AND i = 100;
-                      QUERY PLAN                      
-------------------------------------------------------
- Gather (actual rows=10 loops=1)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) SELECT * FROM t WHERE j = 10 AND i = 100;
+                       QUERY PLAN                        
+---------------------------------------------------------
+ Gather (actual rows=10.00 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on t (actual rows=3 loops=3)
+   ->  Parallel Seq Scan on t (actual rows=3.33 loops=3)
          Filter: ((j = 10) AND (i = 100))
          Rows Removed by Filter: 333330
 (6 rows)
@@ -104,13 +108,13 @@ SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't';
 
 DROP STATISTICS t_i_j_stat;
 -- estimation gretaer than actual
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t WHERE i = 100 OR j = 10;
-                      QUERY PLAN                       
--------------------------------------------------------
- Gather (actual rows=100 loops=1)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) SELECT * FROM t WHERE i = 100 OR j = 10;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Gather (actual rows=100.00 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on t (actual rows=33 loops=3)
+   ->  Parallel Seq Scan on t (actual rows=33.33 loops=3)
          Filter: ((i = 100) OR (j = 10))
          Rows Removed by Filter: 333300
 (6 rows)
@@ -142,10 +146,10 @@ SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 'temp';
              1
 (1 row)
 
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM temp WHERE i = 100 AND j = 10;
-                QUERY PLAN                 
--------------------------------------------
- Seq Scan on temp (actual rows=10 loops=1)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) SELECT * FROM temp WHERE i = 100 AND j = 10;
+                  QUERY PLAN                  
+----------------------------------------------
+ Seq Scan on temp (actual rows=10.00 loops=1)
    Filter: ((i = 100) AND (j = 10))
    Rows Removed by Filter: 999990
 (3 rows)
@@ -177,14 +181,14 @@ SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't2';
              1
 (1 row)
 
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t2 WHERE i = 100 AND j = 10;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) SELECT * FROM t2 WHERE i = 100 AND j = 10;
 NOTICE:  pg_stat_advisor suggestion: 'ANALYZE t2'
-                      QUERY PLAN                       
--------------------------------------------------------
- Gather (actual rows=10 loops=1)
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Gather (actual rows=10.00 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on t2 (actual rows=3 loops=3)
+   ->  Parallel Seq Scan on t2 (actual rows=3.33 loops=3)
          Filter: ((i = 100) AND (j = 10))
          Rows Removed by Filter: 333330
 (6 rows)
@@ -216,13 +220,13 @@ SELECT analyze_count FROM pg_stat_all_tables WHERE relname = 't2';
              2
 (1 row)
 
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t2 WHERE i = 100 AND j = 10 AND k = 1;
-                      QUERY PLAN                       
--------------------------------------------------------
- Gather (actual rows=10 loops=1)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) SELECT * FROM t2 WHERE i = 100 AND j = 10 AND k = 1;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Gather (actual rows=10.00 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on t2 (actual rows=3 loops=3)
+   ->  Parallel Seq Scan on t2 (actual rows=3.33 loops=3)
          Filter: ((i = 100) AND (j = 10) AND (k = 1))
          Rows Removed by Filter: 333330
 (6 rows)
