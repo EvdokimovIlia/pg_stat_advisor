@@ -27,7 +27,7 @@ For extended statistics to be created, the following conditions must be met:
 
 ### [Versions](#description)
 
-PostgreSQL 17
+PostgreSQL 17, 18
 
 ### [Installation](#installation)
 
@@ -66,42 +66,43 @@ The second GUC parameter, pg_stat_advisor.ring_buffer_capacity, specifies the si
 
 
 ```
-SET pg_stat_advisor.suggest_statistics_threshold = 0.1;
+SET pg_stat_advisor.suggest_statistics_threshold = 1.0;
 
 CREATE TABLE t (i INT, j INT);
 INSERT INTO t SELECT i/10, i/100 FROM generate_series(1, 1000000) i;
 ANALYZE t;
-EXPLAIN ANALYZE SELECT * FROM t WHERE i = 100 AND j = 10;
-                                                   QUERY PLAN
-
-----------------------------------------------------------------------------------------------
-------------------
- Gather  (cost=1000.00..11675.10 rows=1 width=8) (actual time=0.526..61.564 rows=10 loops=1)
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..11675.10 rows=1 width=8) (actual time=0.532..24.599 rows=10.00 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on t  (cost=0.00..10675.00 rows=1 width=8) (actual time=35.369..54.44
-7 rows=3 loops=3)
+   Buffers: shared hit=4425
+   ->  Parallel Seq Scan on t  (cost=0.00..10675.00 rows=1 width=8) (actual time=10.887..18.485 rows=3.33 loops=3)
          Filter: ((i = 100) AND (j = 10))
          Rows Removed by Filter: 333330
- Planning Time: 0.148 ms
- Execution Time: 61.589 ms
-(8 rows)
+         Buffers: shared hit=4425
+ Planning:
+   Buffers: shared hit=7
+ Planning Time: 0.196 ms
+ Execution Time: 24.672 ms
+(12 rows)
 
 
 EXPLAIN ANALYZE SELECT * FROM t WHERE i = 100 AND j = 10;
-                                                   QUERY PLAN
-----------------------------------------------------------------------------------------------
-------------------
- Gather  (cost=1000.00..11675.10 rows=10 width=8) (actual time=0.400..59.292 rows=10 loops=1)
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..11676.00 rows=10 width=8) (actual time=0.431..26.151 rows=10.00 loops=1)
    Workers Planned: 2
    Workers Launched: 2
-   ->  Parallel Seq Scan on t  (cost=0.00..10675.00 rows=1 width=8) (actual time=35.614..54.29
-1 rows=3 loops=3)
+   Buffers: shared hit=4425
+   ->  Parallel Seq Scan on t  (cost=0.00..10675.00 rows=4 width=8) (actual time=10.541..18.687 rows=3.33 loops=3)
          Filter: ((i = 100) AND (j = 10))
          Rows Removed by Filter: 333330
- Planning Time: 0.081 ms
- Execution Time: 59.413 ms
-(8 rows)
+         Buffers: shared hit=4425
+ Planning:
+   Buffers: shared hit=19
+ Planning Time: 0.426 ms
+ Execution Time: 26.186 ms
 ```
 
 ### [Authors](#authors)
