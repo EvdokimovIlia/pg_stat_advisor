@@ -24,7 +24,10 @@
 #include "nodes/makefuncs.h"
 #include "storage/ipc.h"
 
-PG_MODULE_MAGIC;
+PG_MODULE_MAGIC_EXT(
+					.name = "pg_stat_advisor",
+					.version = PG_VERSION
+);
 
 /*---- Local variables ----*/
 
