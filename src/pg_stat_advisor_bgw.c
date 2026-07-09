@@ -1,10 +1,13 @@
 #include "include/pg_stat_advisor_bgw.h"
 #include "postmaster/bgworker.h"
+#include "storage/latch.h"
 #include "storage/lwlock.h"
+#include "storage/proc.h"
 #include "storage/shm_mq.h"
 #include "storage/shm_toc.h"
 #include "storage/dsm.h"
 #include "executor/spi.h"
+#include "utils/timestamp.h"
 #include "utils/wait_event.h"
 #include "lib/ilist.h"
 #include "common/hashfn.h"
@@ -69,8 +72,10 @@ static HTAB *db_deferred_tasks_htable = NULL;
 
 static slist_head exited_workers;
 static volatile sig_atomic_t got_sigusr1_signal = 0;
+static volatile sig_atomic_t got_sigterm = 0;
 
 static void sigusr1_handler(SIGNAL_ARGS);
+static void bgtm_sigterm_handler(SIGNAL_ARGS);
 static void CheckSigusr1(void);
 static void WaitForExitedWorkers(void);
 
@@ -179,10 +184,11 @@ void BackgroundTaskManagerMain(Datum main_arg)
     InitDeferredDbTasksHashTable();
     slist_init(&exited_workers);
 
+    pqsignal(SIGTERM, bgtm_sigterm_handler);
     pqsignal(SIGUSR1, sigusr1_handler);
     BackgroundWorkerUnblockSignals();
 
-    while (true)
+    while (!got_sigterm)
     {
         int rc = WaitLatch(&bgtm_shared->latch,
                            WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
@@ -190,6 +196,9 @@ void BackgroundTaskManagerMain(Datum main_arg)
                            PG_WAIT_EXTENSION);
 
         ResetLatch(&bgtm_shared->latch);
+
+        if (got_sigterm)
+            break;
 
         if (rc & WL_LATCH_SET)
         {
@@ -201,6 +210,19 @@ void BackgroundTaskManagerMain(Datum main_arg)
         if (rc & WL_TIMEOUT)
             WorkerExitOnTimeout();
     }
+
+    proc_exit(0);
+}
+
+static void bgtm_sigterm_handler(SIGNAL_ARGS)
+{
+    int save_errno = errno;
+
+    got_sigterm = 1;
+    if (bgtm_shared)
+        SetLatch(&bgtm_shared->latch);
+
+    errno = save_errno;
 }
 
 static void sigusr1_handler(SIGNAL_ARGS)

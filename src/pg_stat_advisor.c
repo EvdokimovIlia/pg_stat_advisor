@@ -122,19 +122,13 @@ void _PG_init(void)
 static void
 explain_ExecutorStart(QueryDesc *queryDesc, int eflags)
 {
+	if (pg_stat_advisor_enabled(nesting_level))
+		queryDesc->query_instr_options |= INSTRUMENT_ALL;
+
 	if (prev_ExecutorStart)
 		prev_ExecutorStart(queryDesc, eflags);
 	else
 		standard_ExecutorStart(queryDesc, eflags);
-
-	if (pg_stat_advisor_enabled(nesting_level) && queryDesc->totaltime == NULL)
-	{
-		MemoryContext oldcxt;
-
-		oldcxt = MemoryContextSwitchTo(queryDesc->estate->es_query_cxt);
-		queryDesc->totaltime = InstrAlloc(1, INSTRUMENT_ALL, false);
-		MemoryContextSwitchTo(oldcxt);
-	}
 }
 
 /*
@@ -186,7 +180,7 @@ explain_ExecutorFinish(QueryDesc *queryDesc)
 static void
 explain_ExecutorEnd(QueryDesc *queryDesc)
 {
-	if (queryDesc->totaltime && pg_stat_advisor_enabled(nesting_level))
+	if (queryDesc->query_instr && pg_stat_advisor_enabled(nesting_level))
 	{
 		MemoryContext oldcxt;
 		ExplainState *es;
@@ -197,12 +191,6 @@ explain_ExecutorEnd(QueryDesc *queryDesc)
 		 * discarded later during ExecutorEnd.
 		 */
 		oldcxt = MemoryContextSwitchTo(queryDesc->estate->es_query_cxt);
-
-		/*
-		 * Make sure stats accumulation is done.  (Note: it's okay if several
-		 * levels of hook all do this.)
-		 */
-		InstrEndLoop(queryDesc->totaltime);
 
 		es = NewExplainState();
 

@@ -225,7 +225,7 @@ do_analyze(Oid relOid, RangeVar *relvar, List *va_cols)
     rel->va_cols = va_cols;
 #if PG_VERSION_NUM >= 160000
     vac_context = AllocSetContextCreate(CurrentMemoryContext, "Vacuum", ALLOCSET_DEFAULT_SIZES);
-    vacuum(list_make1(rel), params,
+    vacuum(list_make1(rel), &params,
            GetAccessStrategy(BAS_VACUUM), vac_context, false);
 
     MemoryContextDelete(vac_context);
