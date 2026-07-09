@@ -54,7 +54,7 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT * FROM t WHERE i = 
          Rows Removed by Filter: 333330
          Buffers: shared hit=4425
  Planning:
-   Buffers: shared hit=8
+   Buffers: shared hit=9
 (10 rows)
 
 SELECT pg_sleep(1);
