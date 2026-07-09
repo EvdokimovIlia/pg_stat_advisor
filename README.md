@@ -27,7 +27,7 @@ For extended statistics to be created, the following conditions must be met:
 
 ### [Versions](#description)
 
-PostgreSQL 17, 18
+PostgreSQL 17, 18, 19
 
 ### [Installation](#installation)
 
